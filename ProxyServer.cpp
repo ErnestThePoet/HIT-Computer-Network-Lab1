@@ -1,8 +1,27 @@
 #include "ProxyServer.h"
 
+void Log(const std::string& message)
+{
+	std::cout << message << std::endl;
+}
+
+BOOL WINAPI CtrlHandler(DWORD type)
+{
+	switch (type)
+	{
+	case CTRL_C_EVENT:
+		std::cout << "123";
+		WSACleanup();
+		std::exit(0);
+
+	default:
+		return FALSE;
+	}
+}
+
 void ProxyServer::Start()
 {
-	const char* kErrorPrefix = "Failed to initialize Socket: ";
+	const char* kErrorPrefix = "Socket Initialization Error: ";
 
 	int status = 0;
 
@@ -55,6 +74,50 @@ void ProxyServer::Start()
 			std::format("listen() failed with return code {:d}.", status));
 	}
 
+	// 设置键盘事件处理程序
+	SetConsoleCtrlHandler(CtrlHandler, TRUE);
+
 	Log(std::format(
 		"Successfully started proxy server. Listening at port {:d}.", this->port_));
+
+	this->RunServiceLoop();
+}
+
+void ProxyServer::RunServiceLoop() const
+{
+	const char* kErrorPrefix = "Server Error: ";
+
+	while (true)
+	{
+		auto request_socket = accept(this->server_socket_, nullptr, nullptr);
+
+		std::thread service_thread([kErrorPrefix, request_socket]
+			{
+				constexpr int kBufferSize = 65536;
+
+				std::vector<char> buffer(kBufferSize);
+
+				int status = recv(request_socket, buffer.data(), kBufferSize, 0);
+
+				if (status == SOCKET_ERROR)
+				{
+					std::cerr
+						<< kErrorPrefix
+						<< std::format(
+							"recv() failed with error code {:d}.",
+							WSAGetLastError())
+						<< std::endl;
+
+					return;
+				}
+
+				std::cout << buffer.data() << std::endl;
+
+				closesocket(request_socket);
+			});
+
+		service_thread.detach();
+
+		Sleep(200);
+	}
 }
