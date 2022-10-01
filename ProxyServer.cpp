@@ -13,9 +13,48 @@ BOOL WINAPI CtrlHandler(DWORD type)
 	}
 }
 
+QPair<SOCKET,QString> ConnectToServer(const char* host)
+{
+	SOCKADDR_IN to_server_socket_addr;
+	to_server_socket_addr.sin_family = AF_INET;
+	// http端口使用80
+	to_server_socket_addr.sin_port = htons(80);
+
+	HOSTENT* hostent = gethostbyname(host);
+
+	if (hostent == NULL)
+	{
+		return { INVALID_SOCKET,
+			QString("gethostbyname()函数返回NULL, 错误码为%1")
+			.arg(WSAGetLastError()) };
+	}
+
+	IN_ADDR server_addr = *reinterpret_cast<IN_ADDR*>(hostent->h_addr_list[0]);
+
+	to_server_socket_addr.sin_addr.S_un.S_addr = inet_addr(inet_ntoa(server_addr));
+
+	SOCKET to_server_socket = socket(AF_INET, SOCK_STREAM, 0);
+	if (to_server_socket == INVALID_SOCKET)
+	{
+		return { INVALID_SOCKET,"创建到服务器的套接字失败"};
+	}
+
+	if (connect(to_server_socket,
+		reinterpret_cast<SOCKADDR*>(&to_server_socket_addr),
+		sizeof(SOCKADDR)) == SOCKET_ERROR)
+	{
+		closesocket(to_server_socket);
+		return { INVALID_SOCKET,
+			QString("connect()函数调用错误, 错误码为%1")
+			.arg(WSAGetLastError()) };
+	}
+
+	return { to_server_socket,"" };
+}
+
 void ProxyServer::Start(u_short port)
 {
-	const char* kErrorPrefix = "Socket Initialization Error: ";
+	const char* kErrorPrefix = "【套接字初始化错误】: ";
 
 	int status = 0;
 
@@ -25,14 +64,14 @@ void ProxyServer::Start(u_short port)
 	{
 		// 由于还没有一次对WSAStartup的成功调用，WSACleanup不应在此被调用
 		qCritical() << kErrorPrefix
-			<< QString("WSAStartup() failed with return code %1.").arg(status);
+			<< QString("WSAStartup()调用失败，返回值为%1").arg(status);
 		std::exit(-1);
 	}
 
 	if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2)
 	{
 		ERR_EXIT(kErrorPrefix,
-			QString("Unexpected Windows Sockets version: %1.%2")
+			QString("未预期的Windows Sockets版本: %1.%2")
 				.arg(LOBYTE(wsaData.wVersion))
 				.arg(HIBYTE(wsaData.wVersion)));
 	}
@@ -43,7 +82,7 @@ void ProxyServer::Start(u_short port)
 
 	if (this->server_socket_ == INVALID_SOCKET)
 	{
-		ERR_EXIT(kErrorPrefix,"Failed to create socket.");
+		ERR_EXIT(kErrorPrefix,"创建到客户端的套接字失败");
 	}
 
 	SOCKADDR_IN server_socket_addr;
@@ -58,21 +97,21 @@ void ProxyServer::Start(u_short port)
 	if (status != 0)
 	{
 		ERR_EXIT(kErrorPrefix,
-			QString("bind() failed with return code %1.").arg(status));
+			QString("bind()调用失败，返回值为%1").arg(status));
 	}
 
 	status = listen(this->server_socket_, SOMAXCONN);
 	if (status != 0)
 	{
 		ERR_EXIT(kErrorPrefix,
-			QString("listen() failed with return code %1.").arg(status));
+			QString("listen()调用失败，返回值为%1.").arg(status));
 	}
 
 	// 设置键盘事件处理程序
 	SetConsoleCtrlHandler(CtrlHandler, TRUE);
 
 	qInfo()<<QString(
-		"Successfully started proxy server. Listening at port %1.")
+		"【代理服务器启动成功】监听端口: %1")
 		.arg(port);
 
 	this->RunServiceLoop();
@@ -80,7 +119,7 @@ void ProxyServer::Start(u_short port)
 
 void ProxyServer::RunServiceLoop() const
 {
-	const char* kErrorPrefix = "Server Error: ";
+	const char* kErrorPrefix = "【服务失败】: ";
 
 	while (true)
 	{
@@ -90,21 +129,113 @@ void ProxyServer::RunServiceLoop() const
 			{
 				constexpr int kBufferSize = 65536;
 
-				std::vector<char> buffer(kBufferSize);
+				QByteArray buffer(kBufferSize, '\0');
 
+				// 接收客户端请求数据
 				int status = recv(to_client_socket, buffer.data(), kBufferSize, 0);
+				
+				// 实验证明status储存的数据长度不包含结尾'\0'
+				int client_recv_size = status;
 
 				if (status == SOCKET_ERROR)
 				{
+					closesocket(to_client_socket);
+
 					qCritical()
 						<< kErrorPrefix
 						<< QString(
-							"recv() failed with error code %1.\n")
+							"接收客户端请求数据时recv()调用失败，返回值为%1")
 								.arg(WSAGetLastError());
 
 					return;
 				}
 
+				// 构建请求头对象，包含请求关键信息
+				HttpHeader header(buffer);
+
+				// 打印请求信息
+				qDebug() << QString("[%1] %2 %3 请求主机:%4 时间:%5")
+					.arg(header.method())
+					.arg(header.url())
+					.arg(header.http_version())
+					.arg(header.host())
+					.arg(QDateTime::currentDateTime()
+						.toString("yyyy/MM/dd hh:mm:ss"));
+
+				// 连接到客户端请求的服务器
+				auto connect_result = ConnectToServer(header.host().toUtf8());
+
+				if (connect_result.first == INVALID_SOCKET)
+				{
+					closesocket(to_client_socket);
+
+					qCritical()
+						<< kErrorPrefix
+						<< connect_result.second;
+
+					return;
+				}
+
+				// 向请求服务器发送请求
+				// 同样，长度信息无需包含结尾'\0'
+				status = send(connect_result.first,
+					buffer.constData(),
+					client_recv_size,
+					0);
+
+				if (status == SOCKET_ERROR)
+				{
+					closesocket(connect_result.first);
+					closesocket(to_client_socket);
+
+					qCritical()
+						<< kErrorPrefix
+						<< QString(
+							"向服务器发送请求时send()调用失败，返回值为%1")
+						.arg(WSAGetLastError());
+
+					return;
+				}
+
+				status = recv(connect_result.first, buffer.data(), kBufferSize, 0);
+
+				int server_recv_size = status;
+
+				if (status==SOCKET_ERROR)
+				{
+					closesocket(connect_result.first);
+					closesocket(to_client_socket);
+
+					qCritical()
+						<< kErrorPrefix
+						<< QString(
+							"接收服务器响应数据时recv()调用失败，返回值为%1")
+						.arg(WSAGetLastError());
+
+					return;
+				}
+
+				// 将数据发回客户端
+				status = send(to_client_socket,
+					buffer.constData(),
+					server_recv_size,
+					0);
+
+				if (status == SOCKET_ERROR)
+				{
+					closesocket(connect_result.first);
+					closesocket(to_client_socket);
+
+					qCritical()
+						<< kErrorPrefix
+						<< QString(
+							"向客户端发回数据时send()调用失败，返回值为%1")
+						.arg(WSAGetLastError());
+
+					return;
+				}
+
+				closesocket(connect_result.first);
 				closesocket(to_client_socket);
 			});
 

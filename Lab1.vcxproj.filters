@@ -21,12 +21,21 @@
     <ClCompile Include="ProxyServer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="HttpHeader.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="ResponseUtil.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ProxyServer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="HttpHeader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="ResponseUtil.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

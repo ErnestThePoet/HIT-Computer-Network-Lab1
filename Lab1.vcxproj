@@ -137,12 +137,15 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="HttpHeader.cpp" />
     <ClCompile Include="Lab1.cpp" />
     <ClCompile Include="ProxyServer.cpp" />
+    <ClCompile Include="ResponseUtil.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="HttpHeader.h" />
     <ClInclude Include="ProxyServer.h" />
+    <ClInclude Include="ResponseUtil.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
