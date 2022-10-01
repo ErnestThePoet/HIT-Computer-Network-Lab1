@@ -26,5 +26,8 @@
     <ClInclude Include="ProxyServer.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="HttpHeader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

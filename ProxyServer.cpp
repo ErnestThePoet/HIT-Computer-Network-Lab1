@@ -1,16 +1,10 @@
 #include "ProxyServer.h"
 
-void Log(const std::string& message)
-{
-	std::cout << message << std::endl;
-}
-
 BOOL WINAPI CtrlHandler(DWORD type)
 {
 	switch (type)
 	{
-	case CTRL_C_EVENT:
-		std::cout << "123";
+	case CTRL_BREAK_EVENT:
 		WSACleanup();
 		std::exit(0);
 
@@ -19,7 +13,7 @@ BOOL WINAPI CtrlHandler(DWORD type)
 	}
 }
 
-void ProxyServer::Start()
+void ProxyServer::Start(u_short port)
 {
 	const char* kErrorPrefix = "Socket Initialization Error: ";
 
@@ -30,17 +24,17 @@ void ProxyServer::Start()
 	if (status != 0)
 	{
 		// 由于还没有一次对WSAStartup的成功调用，WSACleanup不应在此被调用
-		std::cerr << kErrorPrefix
-			<< std::format("WSAStartup() failed with return code {:d}.", status);
+		qCritical() << kErrorPrefix
+			<< QString("WSAStartup() failed with return code %1.").arg(status);
 		std::exit(-1);
 	}
 
 	if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2)
 	{
 		ERR_EXIT(kErrorPrefix,
-			std::format("Unexpected Windows Sockets version: {:d} {:d}",
-				LOBYTE(wsaData.wVersion),
-				HIBYTE(wsaData.wVersion)));
+			QString("Unexpected Windows Sockets version: %1.%2")
+				.arg(LOBYTE(wsaData.wVersion))
+				.arg(HIBYTE(wsaData.wVersion)));
 	}
 
 	// 处理HTTP请求使用的是TCP协议，此代理服务器使用IPv4协议，
@@ -49,36 +43,37 @@ void ProxyServer::Start()
 
 	if (this->server_socket_ == INVALID_SOCKET)
 	{
-		ERR_EXIT(kErrorPrefix,
-			std::format("Failed to create socket."));
+		ERR_EXIT(kErrorPrefix,"Failed to create socket.");
 	}
 
-	this->server_socket_addr_.sin_family = AF_INET;
-	this->server_socket_addr_.sin_port = htons(this->port_);
+	SOCKADDR_IN server_socket_addr;
+	server_socket_addr.sin_family = AF_INET;
+	server_socket_addr.sin_port = htons(port);
 	// 使用任意地址“通配符”
-	this->server_socket_addr_.sin_addr.S_un.S_addr = INADDR_ANY;
+	server_socket_addr.sin_addr.S_un.S_addr = INADDR_ANY;
 
 	status = bind(this->server_socket_, 
-		reinterpret_cast<SOCKADDR*>(&this->server_socket_addr_),
+		reinterpret_cast<SOCKADDR*>(&server_socket_addr),
 		sizeof(SOCKADDR));
 	if (status != 0)
 	{
 		ERR_EXIT(kErrorPrefix,
-			std::format("bind() failed with return code {:d}.", status));
+			QString("bind() failed with return code %1.").arg(status));
 	}
 
 	status = listen(this->server_socket_, SOMAXCONN);
 	if (status != 0)
 	{
 		ERR_EXIT(kErrorPrefix,
-			std::format("listen() failed with return code {:d}.", status));
+			QString("listen() failed with return code %1.").arg(status));
 	}
 
 	// 设置键盘事件处理程序
 	SetConsoleCtrlHandler(CtrlHandler, TRUE);
 
-	Log(std::format(
-		"Successfully started proxy server. Listening at port {:d}.", this->port_));
+	qInfo()<<QString(
+		"Successfully started proxy server. Listening at port %1.")
+		.arg(port);
 
 	this->RunServiceLoop();
 }
@@ -89,31 +84,28 @@ void ProxyServer::RunServiceLoop() const
 
 	while (true)
 	{
-		auto request_socket = accept(this->server_socket_, nullptr, nullptr);
+		auto to_client_socket = accept(this->server_socket_, nullptr, nullptr);
 
-		std::thread service_thread([kErrorPrefix, request_socket]
+		std::thread service_thread([kErrorPrefix, to_client_socket]
 			{
 				constexpr int kBufferSize = 65536;
 
 				std::vector<char> buffer(kBufferSize);
 
-				int status = recv(request_socket, buffer.data(), kBufferSize, 0);
+				int status = recv(to_client_socket, buffer.data(), kBufferSize, 0);
 
 				if (status == SOCKET_ERROR)
 				{
-					std::cerr
+					qCritical()
 						<< kErrorPrefix
-						<< std::format(
-							"recv() failed with error code {:d}.",
-							WSAGetLastError())
-						<< std::endl;
+						<< QString(
+							"recv() failed with error code %1.\n")
+								.arg(WSAGetLastError());
 
 					return;
 				}
 
-				std::cout << buffer.data() << std::endl;
-
-				closesocket(request_socket);
+				closesocket(to_client_socket);
 			});
 
 		service_thread.detach();
