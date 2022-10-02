@@ -11,6 +11,8 @@
 
 #include "setencoding.h"
 #include "HttpHeader.h"
+#include "CacheManager.h"
+#include "RuleManager.h"
 #include "ResponseUtil.h"
 
 #pragma comment(lib,"ws2_32.lib")
