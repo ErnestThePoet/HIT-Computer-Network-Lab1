@@ -13,12 +13,11 @@ BOOL WINAPI CtrlHandler(DWORD type)
 	}
 }
 
-QPair<SOCKET,QString> ConnectToServer(const char* host)
+QPair<SOCKET,QString> ConnectToServer(const char* host,const u_short port)
 {
 	SOCKADDR_IN to_server_socket_addr;
 	to_server_socket_addr.sin_family = AF_INET;
-	// http端口使用80
-	to_server_socket_addr.sin_port = htons(80);
+	to_server_socket_addr.sin_port = htons(port);
 
 	// 查询域名对应的主机地址
 	HOSTENT* hostent = gethostbyname(host);
@@ -148,30 +147,32 @@ void ProxyServer::RunServiceLoop() const
 				// 构建请求头对象，包含请求关键信息
 				HttpHeader header(buffer);
 
-				// 打印请求信息
-				qDebug() << QString("[%1] %2 %3 请求主机:%4 请求数据长度:%5 时间:%6")
-					.arg(header.method())
-					.arg(header.url())
-					.arg(header.http_version())
-					.arg(header.host())
-					.arg(client_recv_size)
-					.arg(QDateTime::currentDateTime()
-						.toString("yyyy/MM/dd hh:mm:ss"));
-
 				// 仅处理GET/POST/PUT/DELETE请求
-				if (header.method() != "GET" 
-					&& header.method() != "POST"
-					&& header.method() != "PUT"
-					&& header.method() != "DELETE")
+				if (header.method() == "GET" 
+					|| header.method() == "POST"
+					|| header.method() == "PUT"
+					|| header.method() == "DELETE")
 				{
-					STOP_SERVICE_CLOSE1(to_client_socket,
-						"[忽略请求]: ",
-						QString("不能处理的请求方法: %1")
-							.arg(header.method()));
+					// 打印请求信息
+					qDebug() << QString("[%1] %2 %3 请求主机:%4 请求数据长度:%5 时间:%6")
+						.arg(header.method())
+						.arg(header.url())
+						.arg(header.http_version())
+						.arg(header.host())
+						.arg(client_recv_size)
+						.arg(QDateTime::currentDateTime()
+							.toString("yyyy/MM/dd hh:mm:ss"));
+				}
+				else
+				{
+					closesocket(to_client_socket);
+					return;
 				}
 
 				// 连接到客户端请求的服务器
-				auto connect_result = ConnectToServer(header.host().toUtf8());
+				// http端口使用80
+				auto connect_result = 
+					ConnectToServer(header.host().toUtf8(),80);
 
 				SOCKET to_server_socket = connect_result.first;
 
@@ -220,7 +221,8 @@ void ProxyServer::RunServiceLoop() const
 							.arg(WSAGetLastError()));
 					}
 
-					qDebug() << QString("成功收到响应数据 响应数据长度:%1")
+					qDebug() << QString("成功收到%1的响应数据 响应数据长度:%2")
+						.arg(header.host())
 						.arg(server_recv_size);
 
 					// 将数据发回客户端

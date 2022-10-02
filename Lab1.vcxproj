@@ -146,6 +146,7 @@
     <ClInclude Include="HttpHeader.h" />
     <ClInclude Include="ProxyServer.h" />
     <ClInclude Include="ResponseUtil.h" />
+    <ClInclude Include="setencoding.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -1,7 +1,7 @@
 #pragma once
 
-#include <qdebug.h>
 #include <qstring.h>
+#include <qstringlist.h>
 
 class HttpHeader
 {

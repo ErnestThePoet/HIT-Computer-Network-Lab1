@@ -9,12 +9,11 @@
 #include <thread>
 #include <Windows.h>
 
+#include "setencoding.h"
 #include "HttpHeader.h"
 #include "ResponseUtil.h"
 
 #pragma comment(lib,"ws2_32.lib")
-// 仅对本文件生效
-#pragma execution_character_set("utf-8")
 
 #define ERR_EXIT(P,M) \
 	do{WSACleanup();qCritical()<<(P)<<(M);std::exit(-1);}while(false)
