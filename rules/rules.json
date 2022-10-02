@@ -1,0 +1,11 @@
+{
+    "forbiddenHosts":[
+        
+    ],
+    "forbiddenUsers":[
+        
+    ],
+    "redirectHosts":[
+        "www.ccview.net"
+    ]
+}

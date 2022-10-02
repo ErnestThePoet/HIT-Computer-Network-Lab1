@@ -112,6 +112,7 @@ void ProxyServer::Start(u_short port)
 		"【代理服务器启动成功】监听端口: %1")
 		.arg(port);
 
+	RuleManager::LoadFromDisk();
 	CacheManager::LoadFromDisk();
 	this->RunServiceLoop();
 }
@@ -122,9 +123,17 @@ void ProxyServer::RunServiceLoop() const
 
 	while (true)
 	{
-		auto to_client_socket = accept(this->server_socket_, nullptr, nullptr);
+		// 同时获取客户端IP地址
+		SOCKADDR_IN client_socket_addr;
+		int client_addr_size = sizeof(SOCKADDR);
 
-		std::thread service_thread([kErrorPrefix, to_client_socket]
+		auto to_client_socket = accept(this->server_socket_, 
+			reinterpret_cast<SOCKADDR*>(& client_socket_addr),
+			&client_addr_size);
+
+		QString client_ip(inet_ntoa(client_socket_addr.sin_addr));
+
+		std::thread service_thread([kErrorPrefix, to_client_socket,client_ip]
 			{
 				// 1MB
 				constexpr int kBufferSize = 1*1024*1024;
@@ -147,6 +156,49 @@ void ProxyServer::RunServiceLoop() const
 
 				// 构建请求头对象，包含请求关键信息
 				HttpHeader header(buffer);
+
+				// 应用过滤规则
+				if (RuleManager::isHostForbidden(header.host()))
+				{
+					qInfo() << QString("[过滤规则生效] 禁止访问主机%1")
+						.arg(header.host());
+
+					auto forbidden_response = ResponseUtil::GetForbiddenResponse();
+					send(to_client_socket,
+						forbidden_response.constData(),
+						forbidden_response.size(),
+						0);
+					closesocket(to_client_socket);
+					return;
+				}
+
+				if (RuleManager::isUserForbidden(client_ip))
+				{
+					qInfo() << QString("[过滤规则生效] 禁止用户%1访问互联网")
+						.arg(client_ip);
+
+					auto forbidden_response = ResponseUtil::GetForbiddenResponse();
+					send(to_client_socket,
+						forbidden_response.constData(),
+						forbidden_response.size(),
+						0);
+					closesocket(to_client_socket);
+					return;
+				}
+
+				if (RuleManager::shouldHostRedirect(header.host()))
+				{
+					qInfo() << QString("[过滤规则生效] 引导对主机%1的访问至钓鱼页面")
+						.arg(header.host());
+
+					auto hacked_response = ResponseUtil::GetHackedResponse();
+					send(to_client_socket,
+						hacked_response.constData(),
+						hacked_response.size(),
+						0);
+					closesocket(to_client_socket);
+					return;
+				}
 
 				// 仅处理GET/POST/PUT/DELETE请求
 				if (header.method() == "GET" 
