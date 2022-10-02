@@ -184,10 +184,10 @@ void ProxyServer::RunServiceLoop() const
 				}
 
 				// 向请求服务器发送请求
-					// 同样，长度信息无需包含结尾'\0'
+				// 实验证明，长度参数需要包含结尾'\0'，否则服务器将不响应某些请求
 				status = send(to_server_socket,
 					buffer.constData(),
-					client_recv_size,
+					client_recv_size+1,
 					0);
 
 				if (status == SOCKET_ERROR)
@@ -226,6 +226,7 @@ void ProxyServer::RunServiceLoop() const
 						.arg(server_recv_size);
 
 					// 将数据发回客户端
+					// 由于可能存在分块发送，所以不应包含结尾'\0'，否则会导致数据中间被插入'\0'
 					status = send(to_client_socket,
 						buffer.constData(),
 						server_recv_size,
@@ -248,6 +249,6 @@ void ProxyServer::RunServiceLoop() const
 
 		service_thread.detach();
 
-		Sleep(30);
+		Sleep(20);
 	}
 }
