@@ -137,15 +137,19 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="CacheManager.cpp" />
     <ClCompile Include="HttpHeader.cpp" />
     <ClCompile Include="Lab1.cpp" />
     <ClCompile Include="ProxyServer.cpp" />
     <ClCompile Include="ResponseUtil.cpp" />
+    <ClCompile Include="RuleManager.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CacheManager.h" />
     <ClInclude Include="HttpHeader.h" />
     <ClInclude Include="ProxyServer.h" />
     <ClInclude Include="ResponseUtil.h" />
+    <ClInclude Include="RuleManager.h" />
     <ClInclude Include="setencoding.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
