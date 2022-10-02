@@ -20,9 +20,9 @@ QPair<SOCKET,QString> ConnectToServer(const char* host)
 	// http端口使用80
 	to_server_socket_addr.sin_port = htons(80);
 
+	// 查询域名对应的主机地址
 	HOSTENT* hostent = gethostbyname(host);
-
-	if (hostent == NULL)
+	if (hostent == nullptr)
 	{
 		return { INVALID_SOCKET,
 			QString("gethostbyname()函数返回NULL, 错误码为%1")
@@ -30,7 +30,6 @@ QPair<SOCKET,QString> ConnectToServer(const char* host)
 	}
 
 	IN_ADDR server_addr = *reinterpret_cast<IN_ADDR*>(hostent->h_addr_list[0]);
-
 	to_server_socket_addr.sin_addr.S_un.S_addr = inet_addr(inet_ntoa(server_addr));
 
 	SOCKET to_server_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -127,7 +126,8 @@ void ProxyServer::RunServiceLoop() const
 
 		std::thread service_thread([kErrorPrefix, to_client_socket]
 			{
-				constexpr int kBufferSize = 65536;
+				// 1MB
+				constexpr int kBufferSize = 1*1024*1024;
 
 				QByteArray buffer(kBufferSize, '\0');
 
@@ -154,11 +154,12 @@ void ProxyServer::RunServiceLoop() const
 				HttpHeader header(buffer);
 
 				// 打印请求信息
-				qDebug() << QString("[%1] %2 %3 请求主机:%4 时间:%5")
+				qDebug() << QString("[%1] %2 %3 请求主机:%4 请求数据长度:%5 时间:%6")
 					.arg(header.method())
 					.arg(header.url())
 					.arg(header.http_version())
 					.arg(header.host())
+					.arg(client_recv_size)
 					.arg(QDateTime::currentDateTime()
 						.toString("yyyy/MM/dd hh:mm:ss"));
 
@@ -177,7 +178,7 @@ void ProxyServer::RunServiceLoop() const
 				}
 
 				// 向请求服务器发送请求
-				// 同样，长度信息无需包含结尾'\0'
+					// 同样，长度信息无需包含结尾'\0'
 				status = send(connect_result.first,
 					buffer.constData(),
 					client_recv_size,
@@ -197,42 +198,54 @@ void ProxyServer::RunServiceLoop() const
 					return;
 				}
 
-				status = recv(connect_result.first, buffer.data(), kBufferSize, 0);
-
-				int server_recv_size = status;
-
-				if (status==SOCKET_ERROR)
+				// 逐个接收所有响应数据块，逐个发回客户端
+				while (true)
 				{
-					closesocket(connect_result.first);
-					closesocket(to_client_socket);
+					status = recv(connect_result.first, buffer.data(), kBufferSize, 0);
 
-					qCritical()
-						<< kErrorPrefix
-						<< QString(
-							"接收服务器响应数据时recv()调用失败，返回值为%1")
-						.arg(WSAGetLastError());
+					int server_recv_size = status;
 
-					return;
-				}
+					if (server_recv_size == 0)
+					{
+						break;
+					}
 
-				// 将数据发回客户端
-				status = send(to_client_socket,
-					buffer.constData(),
-					server_recv_size,
-					0);
+					if (status == SOCKET_ERROR)
+					{
+						closesocket(connect_result.first);
+						closesocket(to_client_socket);
 
-				if (status == SOCKET_ERROR)
-				{
-					closesocket(connect_result.first);
-					closesocket(to_client_socket);
+						qCritical()
+							<< kErrorPrefix
+							<< QString(
+								"接收服务器响应数据时recv()调用失败，返回值为%1")
+							.arg(WSAGetLastError());
 
-					qCritical()
-						<< kErrorPrefix
-						<< QString(
-							"向客户端发回数据时send()调用失败，返回值为%1")
-						.arg(WSAGetLastError());
+						return;
+					}
 
-					return;
+					qDebug() << QString("成功收到响应数据 响应数据长度:%1")
+						.arg(server_recv_size);
+
+					// 将数据发回客户端
+					status = send(to_client_socket,
+						buffer.constData(),
+						server_recv_size,
+						0);
+
+					if (status == SOCKET_ERROR)
+					{
+						closesocket(connect_result.first);
+						closesocket(to_client_socket);
+
+						qCritical()
+							<< kErrorPrefix
+							<< QString(
+								"向客户端发回数据时send()调用失败，返回值为%1")
+							.arg(WSAGetLastError());
+
+						return;
+					}
 				}
 
 				closesocket(connect_result.first);
@@ -241,6 +254,6 @@ void ProxyServer::RunServiceLoop() const
 
 		service_thread.detach();
 
-		Sleep(200);
+		Sleep(20);
 	}
 }
