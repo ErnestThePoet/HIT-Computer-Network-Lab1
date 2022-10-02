@@ -17,6 +17,13 @@ public:
 		auto lines = header.split("\r\n");
 		auto first_line_parts = lines[0].split(' ');
 
+		if (first_line_parts.size() < 2)
+		{
+			// 此方法会使得对此请求的服务被终止
+			this->method_ = "INVALID";
+			return;
+		}
+
 		this->method_ = first_line_parts[0];
 		this->url_ = first_line_parts[1];
 		this->http_version_ = first_line_parts[2];
