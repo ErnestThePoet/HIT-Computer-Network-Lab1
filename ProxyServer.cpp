@@ -112,6 +112,7 @@ void ProxyServer::Start(u_short port)
 		"【代理服务器启动成功】监听端口: %1")
 		.arg(port);
 
+	CacheManager::LoadFromDisk();
 	this->RunServiceLoop();
 }
 
@@ -154,7 +155,7 @@ void ProxyServer::RunServiceLoop() const
 					|| header.method() == "DELETE")
 				{
 					// 打印请求信息
-					qDebug() << QString("[%1] %2 %3 请求主机:%4 请求数据长度:%5 时间:%6")
+					qInfo() << QString("[%1] %2 %3 请求主机:%4 请求数据长度:%5 时间:%6")
 						.arg(header.method())
 						.arg(header.url())
 						.arg(header.http_version())
@@ -183,6 +184,35 @@ void ProxyServer::RunServiceLoop() const
 						connect_result.second);
 				}
 
+				// 查询缓存中是否有该url请求结果的缓存
+				auto cache_query_result = CacheManager::QueryCache(header.url());
+
+				// 如有缓存，向服务器发送包含If-Modified-Since字段的请求，
+				// 查询缓存是否为最新
+				if (cache_query_result.is_existent)
+				{
+					// 如果原请求头包含If-Modified-Since，那么将其替换；
+					// 否则插入一条字段
+					int key_index = buffer.indexOf("If-Modified-Since:");
+					if (key_index!=-1)
+					{
+						int val_end_index = buffer.indexOf("\r\n", key_index);
+
+						buffer.replace(key_index, val_end_index - key_index,
+							QString("If-Modified-Since: %1")
+							.arg(cache_query_result.last_modified).toUtf8());
+					}
+					else
+					{
+						buffer.insert(buffer.indexOf("\r\n") + 2,
+							QString("If-Modified-Since: %1\r\n")
+							.arg(cache_query_result.last_modified).toUtf8());
+					}
+
+					qInfo() << QString("[缓存命中] %1 已向请求头插入If-Modified-Since字段")
+						.arg(header.url());
+				}
+
 				// 向请求服务器发送请求
 				// 实验证明，长度参数需要包含结尾'\0'，否则服务器将不响应某些请求
 				status = send(to_server_socket,
@@ -199,8 +229,12 @@ void ProxyServer::RunServiceLoop() const
 						.arg(WSAGetLastError()));
 				}
 
+				// 对于缓存未命中的请求，如果响应包含Lat-Modified字段才应该进行缓存
+				bool should_cache = false;
+				int cache_id = -1;
+
 				// 逐个接收所有响应数据块，逐个发回客户端
-				while (true)
+				for(int i=0;;i++)
 				{
 					status = recv(to_server_socket, buffer.data(), kBufferSize, 0);
 
@@ -221,7 +255,64 @@ void ProxyServer::RunServiceLoop() const
 							.arg(WSAGetLastError()));
 					}
 
-					qDebug() << QString("成功收到%1的响应数据 响应数据长度:%2")
+					// 如果之前缓存命中且响应码为304，那么直接分块返回缓存数据
+					if (i == 0 
+						&& cache_query_result.is_existent
+						&& buffer.split('\r')[0].contains("304"))
+					{
+						qInfo() << QString("[304 Not Modified] %1 将发回缓存数据")
+							.arg(header.url());
+						auto cache_chunks = CacheManager::ReadCacheChunks(
+							cache_query_result.cache_id);
+
+						for (auto j : cache_chunks)
+						{
+							status = send(to_client_socket,
+								j.constData(),
+								j.size(),
+								0);
+
+							if (status == SOCKET_ERROR)
+							{
+								STOP_SERVICE_CLOSE2(to_server_socket,
+									to_client_socket,
+									kErrorPrefix,
+									QString(
+										"向客户端发回数据时send()调用失败，返回值为%1")
+									.arg(WSAGetLastError()));
+							}
+						}
+
+						break;
+					}
+
+					// 如果缓存未命中或已失效，那么存入缓存
+					if (i == 0)
+					{
+						QString response_str(buffer);
+						auto response_splitted = response_str.split("\r\n");
+						for (auto& j : response_splitted)
+						{
+							if (j.startsWith("Last-Modified: ", Qt::CaseInsensitive))
+							{
+								cache_id=CacheManager::CreateCache(
+									header.url(),
+									j.remove("Last-Modified: ", Qt::CaseInsensitive));
+
+								should_cache = true;
+								break;
+							}
+						}
+					}
+
+					if (should_cache)
+					{
+						CacheManager::AppendCacheChunk(cache_id,
+							buffer.sliced(0, server_recv_size));
+					}
+
+					qInfo() << QString("%1成功收到%2的响应数据 响应数据长度:%3")
+						.arg(should_cache ? "[已存入缓存] " : "")
 						.arg(header.host())
 						.arg(server_recv_size);
 
