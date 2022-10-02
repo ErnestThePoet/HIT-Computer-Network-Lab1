@@ -16,7 +16,12 @@
 // 仅对本文件生效
 #pragma execution_character_set("utf-8")
 
-#define ERR_EXIT(P,M) do{WSACleanup();qCritical()<<(P)<<(M)<<'\n';std::exit(-1);}while(false)
+#define ERR_EXIT(P,M) \
+	do{WSACleanup();qCritical()<<(P)<<(M);std::exit(-1);}while(false)
+#define STOP_SERVICE_CLOSE1(S,P,M) \
+	do{closesocket(S);qWarning()<<(P)<<(M);return;}while(false)
+#define STOP_SERVICE_CLOSE2(S1,S2,P,M) \
+	do{closesocket(S1);closesocket(S2);qWarning()<<(P)<<(M);return;}while(false)
 
 class ProxyServer
 {

@@ -139,15 +139,10 @@ void ProxyServer::RunServiceLoop() const
 
 				if (status == SOCKET_ERROR)
 				{
-					closesocket(to_client_socket);
-
-					qCritical()
-						<< kErrorPrefix
-						<< QString(
-							"接收客户端请求数据时recv()调用失败，返回值为%1")
-								.arg(WSAGetLastError());
-
-					return;
+					STOP_SERVICE_CLOSE1(to_client_socket,
+						kErrorPrefix,
+						QString("接收客户端请求数据时recv()调用失败，返回值为%1")
+							.arg(WSAGetLastError()));
 				}
 
 				// 构建请求头对象，包含请求关键信息
@@ -163,45 +158,50 @@ void ProxyServer::RunServiceLoop() const
 					.arg(QDateTime::currentDateTime()
 						.toString("yyyy/MM/dd hh:mm:ss"));
 
+				// 仅处理GET/POST/PUT/DELETE请求
+				if (header.method() != "GET" 
+					&& header.method() != "POST"
+					&& header.method() != "PUT"
+					&& header.method() != "DELETE")
+				{
+					STOP_SERVICE_CLOSE1(to_client_socket,
+						"[忽略请求]: ",
+						QString("不能处理的请求方法: %1")
+							.arg(header.method()));
+				}
+
 				// 连接到客户端请求的服务器
 				auto connect_result = ConnectToServer(header.host().toUtf8());
 
-				if (connect_result.first == INVALID_SOCKET)
+				SOCKET to_server_socket = connect_result.first;
+
+				if (to_server_socket == INVALID_SOCKET)
 				{
-					closesocket(to_client_socket);
-
-					qCritical()
-						<< kErrorPrefix
-						<< connect_result.second;
-
-					return;
+					STOP_SERVICE_CLOSE1(to_client_socket,
+						kErrorPrefix,
+						connect_result.second);
 				}
 
 				// 向请求服务器发送请求
 					// 同样，长度信息无需包含结尾'\0'
-				status = send(connect_result.first,
+				status = send(to_server_socket,
 					buffer.constData(),
 					client_recv_size,
 					0);
 
 				if (status == SOCKET_ERROR)
 				{
-					closesocket(connect_result.first);
-					closesocket(to_client_socket);
-
-					qCritical()
-						<< kErrorPrefix
-						<< QString(
-							"向服务器发送请求时send()调用失败，返回值为%1")
-						.arg(WSAGetLastError());
-
-					return;
+					STOP_SERVICE_CLOSE2(to_server_socket,
+						to_client_socket,
+						kErrorPrefix,
+						QString("向服务器发送请求时send()调用失败，返回值为%1")
+						.arg(WSAGetLastError()));
 				}
 
 				// 逐个接收所有响应数据块，逐个发回客户端
 				while (true)
 				{
-					status = recv(connect_result.first, buffer.data(), kBufferSize, 0);
+					status = recv(to_server_socket, buffer.data(), kBufferSize, 0);
 
 					int server_recv_size = status;
 
@@ -212,16 +212,12 @@ void ProxyServer::RunServiceLoop() const
 
 					if (status == SOCKET_ERROR)
 					{
-						closesocket(connect_result.first);
-						closesocket(to_client_socket);
-
-						qCritical()
-							<< kErrorPrefix
-							<< QString(
+						STOP_SERVICE_CLOSE2(to_server_socket,
+							to_client_socket,
+							kErrorPrefix,
+							QString(
 								"接收服务器响应数据时recv()调用失败，返回值为%1")
-							.arg(WSAGetLastError());
-
-						return;
+							.arg(WSAGetLastError()));
 					}
 
 					qDebug() << QString("成功收到响应数据 响应数据长度:%1")
@@ -235,25 +231,21 @@ void ProxyServer::RunServiceLoop() const
 
 					if (status == SOCKET_ERROR)
 					{
-						closesocket(connect_result.first);
-						closesocket(to_client_socket);
-
-						qCritical()
-							<< kErrorPrefix
-							<< QString(
+						STOP_SERVICE_CLOSE2(to_server_socket,
+							to_client_socket,
+							kErrorPrefix,
+							QString(
 								"向客户端发回数据时send()调用失败，返回值为%1")
-							.arg(WSAGetLastError());
-
-						return;
+							.arg(WSAGetLastError()));
 					}
 				}
 
-				closesocket(connect_result.first);
+				closesocket(to_server_socket);
 				closesocket(to_client_socket);
 			});
 
 		service_thread.detach();
 
-		Sleep(20);
+		Sleep(30);
 	}
 }
