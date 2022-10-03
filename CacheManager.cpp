@@ -4,7 +4,7 @@ const QString CacheManager::kCacheDir = "./cache";
 const QString CacheManager::kCacheIndexPath = 
     CacheManager::kCacheDir+"/index.json";
 const QString CacheManager::kCacheNamePattern = 
-    CacheManager::kCacheDir + "/cache-%1.json";
+    CacheManager::kCacheDir + "/cache-%1-%2";
 
 QJsonArray CacheManager::index_array_ = QJsonArray();
 
@@ -36,6 +36,7 @@ CacheQueryResult CacheManager::QueryCache(const QString& url)
         "url":string;
         "lastModified":string;
         "cacheId":number;
+        "chunkIds":number[];
     }>
     */
     for (auto i : CacheManager::index_array_)
@@ -56,17 +57,27 @@ CacheQueryResult CacheManager::QueryCache(const QString& url)
 
 QByteArrayList CacheManager::ReadCacheChunks(const int cache_id)
 {
-    QFile cache_file(CacheManager::kCacheNamePattern.arg(cache_id));
-    cache_file.open(QIODeviceBase::ReadOnly);
+    QByteArrayList chunks;
 
-    QByteArray file_content = cache_file.readAll();
-    cache_file.close();
-
-    QJsonArray chunk_array = QJsonDocument::fromJson(file_content).array();
-    QByteArrayList chunks(chunk_array.size());
-    for (int i=0;i<chunk_array.size();i++)
+    for (auto i:CacheManager::index_array_)
     {
-        chunks[i] = QByteArray::fromBase64(chunk_array[i].toString().toUtf8());
+        auto current_index_entry = i.toObject();
+        if (current_index_entry.value("cacheId").toInt() == cache_id)
+        {
+            auto chunk_ids = current_index_entry.value("chunkIds").toArray();
+            
+            for (auto j : chunk_ids)
+            {
+                QFile chunk_file(CacheManager::kCacheNamePattern
+                    .arg(cache_id)
+                    .arg(j.toInt()));
+                chunk_file.open(QIODeviceBase::ReadOnly);
+                chunks.append(chunk_file.readAll());
+                chunk_file.close();
+            }
+
+            break;
+        }
     }
 
     return chunks;
@@ -83,6 +94,7 @@ int CacheManager::CreateCache(const QString& url, const QString& last_modified)
         if (current_cache_entry.value("url").toString() == url)
         {
             current_cache_entry.insert("lastModified", last_modified);
+            current_cache_entry.insert("chunkIds", QJsonArray());
             cache_id = current_cache_entry.value("cacheId").toInt();
 
             CacheManager::index_array_[i] = current_cache_entry;
@@ -104,7 +116,8 @@ int CacheManager::CreateCache(const QString& url, const QString& last_modified)
         CacheManager::index_array_.append(QJsonObject({
             {"url",url},
             {"lastModified",last_modified},
-            {"cacheId",cache_id} }));
+            {"cacheId",cache_id},
+            {"chunkIds",QJsonArray()}}));
     }
 
     QFile index_file(CacheManager::kCacheIndexPath);
@@ -123,37 +136,47 @@ int CacheManager::CreateCache(const QString& url, const QString& last_modified)
 
     index_file.close();
 
-    // 置缓存文件内容为空数组，如果不存在则新建文件
-    QFile cache_file(CacheManager::kCacheNamePattern.arg(cache_id));
-    if (!cache_file.exists())
-    {
-        cache_file.open(QIODeviceBase::NewOnly);
-    }
-    else
-    {
-        cache_file.open(QIODeviceBase::WriteOnly | QIODeviceBase::Truncate);
-    }
-
-    cache_file.write("[]");
-    cache_file.close();
-
     return cache_id;
 }
 
 void CacheManager::AppendCacheChunk(const int cache_id, const QByteArray& data)
 {
-    QFile cache_file_read(CacheManager::kCacheNamePattern.arg(cache_id));
-    cache_file_read.open(QIODeviceBase::ReadOnly);
+    int current_chunk_id = 0;
+    for (int i=0;i<CacheManager::index_array_.size();i++)
+    {
+        auto current_index_entry = CacheManager::index_array_[i].toObject();
+        if (current_index_entry.value("cacheId").toInt() == cache_id)
+        {
+            auto chunk_ids = current_index_entry.value("chunkIds").toArray();
+            if (chunk_ids.size() > 0)
+            {
+                current_chunk_id = chunk_ids.last().toInt() + 1;
+            }
+            chunk_ids.append(QJsonValue(current_chunk_id));
 
-    QByteArray file_content = cache_file_read.readAll();
+            current_index_entry.insert("chunkIds", chunk_ids);
+            CacheManager::index_array_[i] = current_index_entry;
+            break;
+        }
+    }
 
-    cache_file_read.close();
+    QFile index_file(CacheManager::kCacheIndexPath);
+    index_file.open(QIODeviceBase::WriteOnly | QIODeviceBase::Truncate);
+    index_file.write(QJsonDocument(CacheManager::index_array_).toJson());
+    index_file.close();
 
-    QJsonArray chunk_array = QJsonDocument::fromJson(file_content).array();
-    chunk_array.append(QJsonValue(data.toBase64().constData()));
-
-    QFile cache_file_write(CacheManager::kCacheNamePattern.arg(cache_id));
-    cache_file_write.open(QIODeviceBase::WriteOnly | QIODeviceBase::Truncate);
-    cache_file_write.write(QJsonDocument(chunk_array).toJson());
-    cache_file_write.close();
+    QFile chunk_file(CacheManager::kCacheNamePattern
+        .arg(cache_id)
+        .arg(current_chunk_id));
+    if (!chunk_file.exists())
+    {
+        chunk_file.open(QIODeviceBase::NewOnly);
+    }
+    else
+    {
+        chunk_file.open(QIODeviceBase::WriteOnly | QIODeviceBase::Truncate);
+    }
+    
+    chunk_file.write(data);
+    chunk_file.close();
 }

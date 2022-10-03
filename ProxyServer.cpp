@@ -265,8 +265,6 @@ void ProxyServer::RunServiceLoop() const
 
 					qInfo() << QString("[缓存命中] %1 已向请求头插入If-Modified-Since字段")
 						.arg(header.url());
-
-					qInfo() << buffer.sliced(0, 700);
 				}
 				else
 				{
@@ -297,7 +295,7 @@ void ProxyServer::RunServiceLoop() const
 						.arg(WSAGetLastError()));
 				}
 
-				// 对于缓存未命中的请求，如果响应包含Lat-Modified字段才应该进行缓存
+				// 对于缓存未命中的请求，如果响应包含Last-Modified字段才应该进行缓存
 				bool should_cache = false;
 				int cache_id = -1;
 
@@ -329,7 +327,7 @@ void ProxyServer::RunServiceLoop() const
 						&& buffer.split('\r')[0].contains("304")
 					)
 					{
-						qInfo() << QString("[304 Not Modified] %1 将发回缓存数据")
+						qInfo() << QString("【收到状态码304-发回本地缓存数据】%1")
 							.arg(header.url());
 						auto cache_chunks = CacheManager::ReadCacheChunks(
 							cache_query_result.cache_id);
