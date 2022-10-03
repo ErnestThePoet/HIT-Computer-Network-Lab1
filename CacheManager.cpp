@@ -142,15 +142,18 @@ int CacheManager::CreateCache(const QString& url, const QString& last_modified)
 
 void CacheManager::AppendCacheChunk(const int cache_id, const QByteArray& data)
 {
-    QFile cache_file(CacheManager::kCacheNamePattern.arg(cache_id));
-    cache_file.open(QIODeviceBase::ReadWrite|QIODeviceBase::Truncate);
+    QFile cache_file_read(CacheManager::kCacheNamePattern.arg(cache_id));
+    cache_file_read.open(QIODeviceBase::ReadOnly);
 
-    QByteArray file_content = cache_file.readAll();
+    QByteArray file_content = cache_file_read.readAll();
+
+    cache_file_read.close();
 
     QJsonArray chunk_array = QJsonDocument::fromJson(file_content).array();
     chunk_array.append(QJsonValue(data.toBase64().constData()));
 
-    cache_file.write(QJsonDocument(chunk_array).toJson());
-
-    cache_file.close();
+    QFile cache_file_write(CacheManager::kCacheNamePattern.arg(cache_id));
+    cache_file_write.open(QIODeviceBase::WriteOnly | QIODeviceBase::Truncate);
+    cache_file_write.write(QJsonDocument(chunk_array).toJson());
+    cache_file_write.close();
 }

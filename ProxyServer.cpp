@@ -135,8 +135,8 @@ void ProxyServer::RunServiceLoop() const
 
 		std::thread service_thread([kErrorPrefix, to_client_socket,client_ip]
 			{
-				// 1MB
-				constexpr int kBufferSize = 1*1024*1024;
+				// 2MB
+				constexpr int kBufferSize = 2*1024*1024;
 
 				QByteArray buffer(kBufferSize, '\0');
 
@@ -240,7 +240,9 @@ void ProxyServer::RunServiceLoop() const
 				auto cache_query_result = CacheManager::QueryCache(header.url());
 
 				// 如有缓存，向服务器发送包含If-Modified-Since字段的请求，
-				// 查询缓存是否为最新
+				// 查询缓存是否为最新；
+				// 如无缓存，强制删除客户端请求头中的If-Modified-Since字段，
+				// 使得服务器不会返回304（此时无有效内容，不能存入缓存）
 				if (cache_query_result.is_existent)
 				{
 					// 如果原请求头包含If-Modified-Since，那么将其替换；
@@ -263,6 +265,20 @@ void ProxyServer::RunServiceLoop() const
 
 					qInfo() << QString("[缓存命中] %1 已向请求头插入If-Modified-Since字段")
 						.arg(header.url());
+
+					qInfo() << buffer.sliced(0, 700);
+				}
+				else
+				{
+					int modified_since_index = buffer.indexOf("If-Modified-Since: ");
+
+					if (modified_since_index != -1)
+					{
+						int crlf_index = buffer.indexOf("\r\n", modified_since_index);
+
+						buffer.remove(modified_since_index, 
+							crlf_index - modified_since_index + 2);
+					}
 				}
 
 				// 向请求服务器发送请求
@@ -310,7 +326,8 @@ void ProxyServer::RunServiceLoop() const
 					// 如果之前缓存命中且响应码为304，那么直接分块返回缓存数据
 					if (i == 0 
 						&& cache_query_result.is_existent
-						&& buffer.split('\r')[0].contains("304"))
+						&& buffer.split('\r')[0].contains("304")
+					)
 					{
 						qInfo() << QString("[304 Not Modified] %1 将发回缓存数据")
 							.arg(header.url());
@@ -364,7 +381,11 @@ void ProxyServer::RunServiceLoop() const
 					}
 
 					qInfo() << QString("%1成功收到%2的响应数据 响应数据长度:%3")
-						.arg(should_cache ? "[已存入缓存] " : "")
+						.arg(should_cache 
+							? (cache_query_result.is_existent
+								?"[已更新缓存] "
+								:"[已存入缓存] ") 
+							: "")
 						.arg(header.host())
 						.arg(server_recv_size);
 
