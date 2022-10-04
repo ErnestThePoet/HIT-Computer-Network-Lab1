@@ -56,8 +56,8 @@ void ProxyServer::Start(u_short port)
 
 	int status = 0;
 
-	WSADATA wsaData;
-	status = WSAStartup(MAKEWORD(2, 2), &wsaData);
+	WSADATA wsa_data;
+	status = WSAStartup(MAKEWORD(2, 2), &wsa_data);
 	if (status != 0)
 	{
 		// 由于还没有一次对WSAStartup的成功调用，WSACleanup不应在此被调用
@@ -66,12 +66,12 @@ void ProxyServer::Start(u_short port)
 		std::exit(-1);
 	}
 
-	if (LOBYTE(wsaData.wVersion) != 2 || HIBYTE(wsaData.wVersion) != 2)
+	if (LOBYTE(wsa_data.wVersion) != 2 || HIBYTE(wsa_data.wVersion) != 2)
 	{
 		ERR_EXIT(kErrorPrefix,
 			QString("未预期的Windows Sockets版本: %1.%2")
-				.arg(LOBYTE(wsaData.wVersion))
-				.arg(HIBYTE(wsaData.wVersion)));
+				.arg(LOBYTE(wsa_data.wVersion))
+				.arg(HIBYTE(wsa_data.wVersion)));
 	}
 
 	// 处理HTTP请求使用的是TCP协议，此代理服务器使用IPv4协议，
