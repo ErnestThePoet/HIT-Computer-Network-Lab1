@@ -7,6 +7,7 @@ const QString CacheManager::kCacheNamePattern =
     CacheManager::kCacheDir + "/cache-%1-%2";
 
 QJsonArray CacheManager::index_array_ = QJsonArray();
+std::mutex CacheManager::index_array_mutex_ = std::mutex();
 
 void CacheManager::LoadFromDisk()
 {
@@ -87,6 +88,8 @@ int CacheManager::CreateCache(const QString& url, const QString& last_modified)
 {
     int cache_id = 0;
     bool is_entry_existent = false;
+
+    CacheManager::index_array_mutex_.lock();
     // 若该url的缓存索引记录已存在，那么更新该记录
     for (int i = 0; i < CacheManager::index_array_.size(); i++)
     {
@@ -134,6 +137,8 @@ int CacheManager::CreateCache(const QString& url, const QString& last_modified)
 
     index_file.write(QJsonDocument(CacheManager::index_array_).toJson());
 
+    CacheManager::index_array_mutex_.unlock();
+
     index_file.close();
 
     return cache_id;
@@ -142,6 +147,9 @@ int CacheManager::CreateCache(const QString& url, const QString& last_modified)
 void CacheManager::AppendCacheChunk(const int cache_id, const QByteArray& data)
 {
     int current_chunk_id = 0;
+
+    CacheManager::index_array_mutex_.lock();
+
     for (int i=0;i<CacheManager::index_array_.size();i++)
     {
         auto current_index_entry = CacheManager::index_array_[i].toObject();
@@ -163,6 +171,7 @@ void CacheManager::AppendCacheChunk(const int cache_id, const QByteArray& data)
     QFile index_file(CacheManager::kCacheIndexPath);
     index_file.open(QIODeviceBase::WriteOnly | QIODeviceBase::Truncate);
     index_file.write(QJsonDocument(CacheManager::index_array_).toJson());
+    CacheManager::index_array_mutex_.unlock();
     index_file.close();
 
     QFile chunk_file(CacheManager::kCacheNamePattern

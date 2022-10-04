@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mutex>
 #include <qfile.h>
 #include <qbytearray.h>
 #include <qbytearraylist.h>
@@ -28,6 +29,8 @@ private:
 	// 以后每次查询缓存索引，都在内存中进行。
 	// 每次更新缓存索引时，同时更新内存中的索引和磁盘中的索引。
 	static QJsonArray index_array_;
+
+	static std::mutex index_array_mutex_;
 public:
 	static void LoadFromDisk();
 
